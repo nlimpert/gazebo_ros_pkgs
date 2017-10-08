@@ -141,6 +141,10 @@ void GazeboRosVacuumGripper::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf
   update_connection_ = event::Events::ConnectWorldUpdateBegin(
       boost::bind(&GazeboRosVacuumGripper::UpdateChild, this));
 
+  grabJoint = _model->GetWorld()->GetPhysicsEngine()->CreateJoint( "revolute", _model);
+  grabJoint->SetName("gripper_grab_puck");
+  grabJoint->SetModel( _model);
+
   ROS_INFO_NAMED("vacuum_gripper", "Loaded gazebo_ros_vacuum_gripper");
 }
 
@@ -152,6 +156,7 @@ bool GazeboRosVacuumGripper::OnServiceCallback(std_srvs::Empty::Request &req,
   } else {
     status_ = true;
     ROS_INFO_NAMED("vacuum_gripper", "gazebo_ros_vacuum_gripper: status: off -> on");
+    model_attached_ = false;
   }
   return true;
 }
@@ -161,6 +166,11 @@ bool GazeboRosVacuumGripper::OffServiceCallback(std_srvs::Empty::Request &req,
   if (status_) {
     status_ = false;
     ROS_INFO_NAMED("vacuum_gripper", "gazebo_ros_vacuum_gripper: status: on -> off");
+    if (model_attached_ == true) {
+      ROS_INFO_NAMED("vacuum_gripper", "Releasing object");
+      grabJoint->Detach();
+      model_attached_ = false;
+    }
   } else {
     ROS_WARN_NAMED("vacuum_gripper", "gazebo_ros_vacuum_gripper: already status is 'off'");
   }
@@ -181,7 +191,7 @@ void GazeboRosVacuumGripper::UpdateChild()
   lock_.lock();
   math::Pose parent_pose = link_->GetWorldPose();
   physics::Model_V models = world_->GetModels();
-  for (size_t i = 0; i < models.size(); i++) {
+  for (size_t i = 0; i < models.size() && model_attached_ != true; i++) {
     if (models[i]->GetName() == link_->GetName() ||
         models[i]->GetName() == parent_->GetName())
     {
@@ -192,17 +202,21 @@ void GazeboRosVacuumGripper::UpdateChild()
       math::Pose link_pose = links[j]->GetWorldPose();
       math::Pose diff = parent_pose - link_pose;
       double norm = diff.pos.GetLength();
-      if (norm < 0.05) {
+      if (norm < 0.1) {
         links[j]->SetLinearAccel(link_->GetWorldLinearAccel());
         links[j]->SetAngularAccel(link_->GetWorldAngularAccel());
         links[j]->SetLinearVel(link_->GetWorldLinearVel());
         links[j]->SetAngularVel(link_->GetWorldAngularVel());
         double norm_force = 1 / norm;
-        if (norm < 0.01) {
-          // apply friction like force
-          // TODO(unknown): should apply friction actually
-          link_pose.Set(parent_pose.pos, link_pose.rot);
-          links[j]->SetWorldPose(link_pose);
+        if (norm < 0.06) {
+          grabJoint->Load(link_, links[j], math::Pose(0, 0, 0, 0, 0, 0));
+          grabJoint->Attach(link_, links[j]);
+
+          grabJoint->SetAxis(0,  gazebo::math::Vector3(0.0f,0.0f,1.0f) );
+          grabJoint->SetHighStop( 0, gazebo::math::Angle( 0.0f ) );
+          grabJoint->SetLowStop( 0, gazebo::math::Angle( 0.0f ) );
+
+          model_attached_ = true;
         }
         if (norm_force > 20) {
           norm_force = 20;  // max_force

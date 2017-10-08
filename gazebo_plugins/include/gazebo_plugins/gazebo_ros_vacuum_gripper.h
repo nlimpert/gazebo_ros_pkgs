@@ -115,6 +115,7 @@ class GazeboRosVacuumGripper : public ModelPlugin
                                 std_srvs::Empty::Response &res);
 
   private: bool status_;
+  private: bool model_attached_;
 
   private: physics::ModelPtr parent_;
 
@@ -123,6 +124,7 @@ class GazeboRosVacuumGripper : public ModelPlugin
 
   /// \brief A pointer to the Link, where force is applied
   private: physics::LinkPtr link_;
+  private: physics::JointPtr grabJoint;
 
   /// \brief A pointer to the ROS node.  A node will be instantiated if it does not exist.
   private: ros::NodeHandle* rosnode_;
